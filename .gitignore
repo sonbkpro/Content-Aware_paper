@@ -1,0 +1,5 @@
+#Exclude all pyc file
+*.pyc
+
+dataset/train/
+

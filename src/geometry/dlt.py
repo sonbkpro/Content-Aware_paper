@@ -2,6 +2,13 @@ from __future__ import annotations
 import torch
 
 
+_LOW_PRECISION_DTYPES = (torch.float16, torch.bfloat16)
+
+
+def _linalg_dtype(dtype: torch.dtype) -> torch.dtype:
+    return torch.float32 if dtype in _LOW_PRECISION_DTYPES else dtype
+
+
 def canonical_corners(batch: int, h: int, w: int, device=None, dtype=None) -> torch.Tensor:
     pts = torch.tensor([[0., 0.], [w - 1., 0.], [w - 1., h - 1.], [0., h - 1.]], device=device, dtype=dtype)
     return pts.unsqueeze(0).repeat(batch, 1, 1)
@@ -16,8 +23,11 @@ def solve_homography_dlt(src_pts: torch.Tensor, dst_pts: torch.Tensor) -> torch.
     b, n, _ = src_pts.shape
     if n < 4:
         raise ValueError('At least 4 correspondences are required')
-    x, y = src_pts[..., 0], src_pts[..., 1]
-    u, v = dst_pts[..., 0], dst_pts[..., 1]
+    solve_dtype = _linalg_dtype(src_pts.dtype)
+    src = src_pts.to(solve_dtype)
+    dst = dst_pts.to(solve_dtype)
+    x, y = src[..., 0], src[..., 1]
+    u, v = dst[..., 0], dst[..., 1]
     zeros = torch.zeros_like(x)
     ones = torch.ones_like(x)
     row1 = torch.stack([x, y, ones, zeros, zeros, zeros, -u * x, -u * y], dim=-1)
@@ -29,7 +39,7 @@ def solve_homography_dlt(src_pts: torch.Tensor, dst_pts: torch.Tensor) -> torch.
     except RuntimeError:
         h8 = torch.linalg.pinv(A) @ rhs
         h8 = h8.squeeze(-1)
-    last = torch.ones(b, 1, device=src_pts.device, dtype=src_pts.dtype)
+    last = torch.ones(b, 1, device=src_pts.device, dtype=h8.dtype)
     H = torch.cat([h8, last], dim=1).reshape(b, 3, 3)
     return H
 

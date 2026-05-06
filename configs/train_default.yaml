@@ -2,9 +2,9 @@ seed: 42
 device: cuda
 amp: true
 data:
-  train_video_dir: data/train
-  val_npy_dir: data/val_labels
-  val_image_root: data/val_images
+  train_video_dir: dataset/train
+  val_npy_dir: dataset/val_labels
+  val_image_root: dataset/val_images
   categories: [regular, low-texture, low-light, small-foreground, large-foreground]
   crop_h: 315
   crop_w: 560
