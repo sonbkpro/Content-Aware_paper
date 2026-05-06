@@ -15,3 +15,25 @@ def test_video_dataset():
         s = ds[0]
         assert s['ia'].shape == (1,32,32)
         assert 1 <= s['gap'] <= 3
+
+
+def test_video_dataset_retries_unreadable_sample(monkeypatch):
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td); (d/'train').mkdir()
+        wr = cv2.VideoWriter(str(d/'train/000001.mp4'), cv2.VideoWriter_fourcc(*'mp4v'), 5, (64,48))
+        for i in range(8): wr.write(np.full((48,64,3), i*20, np.uint8))
+        wr.release()
+        original_read_frame = VideoFramePairDataset._read_frame
+        calls = {'n': 0}
+
+        def flaky_read_frame(path, idx):
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise RuntimeError('simulated decode failure')
+            return original_read_frame(path, idx)
+
+        monkeypatch.setattr(VideoFramePairDataset, '_read_frame', staticmethod(flaky_read_frame))
+        ds = VideoFramePairDataset(str(d/'train'), crop_h=32, crop_w=32, gap_min=1, gap_max=3, pairs_per_epoch=2, max_read_attempts=3)
+        s = ds[0]
+        assert s['ia'].shape == (1,32,32)
+        assert calls['n'] > 1

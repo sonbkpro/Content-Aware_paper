@@ -47,7 +47,11 @@ class Trainer:
                 self.scaler.scale(loss).backward()
                 self.scaler.unscale_(self.optim)
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.0)
-                self.scaler.step(self.optim); self.scaler.update(); self.sched.step()
+                scale_before = self.scaler.get_scale()
+                self.scaler.step(self.optim)
+                self.scaler.update()
+                if not self.scaler.is_enabled() or self.scaler.get_scale() >= scale_before:
+                    self.sched.step()
                 self.step += 1; pbar.update(1)
                 if self.step % self.cfg['train']['log_every'] == 0:
                     pbar.set_postfix(loss=f'{loss.item():.4f}', stage='attn' if use_attention else 'ransac-only', lr=self.sched.get_last_lr()[0])

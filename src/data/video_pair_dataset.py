@@ -10,12 +10,13 @@ from .transforms import random_crop_pair, to_gray_float_tensor
 class VideoFramePairDataset(Dataset):
     """Samples (frame_t, frame_t+k) from mp4 files, where k is random in [gap_min, gap_max]."""
     def __init__(self, video_dir: str, crop_h: int = 315, crop_w: int = 560, gap_min: int = 1, gap_max: int = 5,
-                 pairs_per_epoch: int = 12000, seed: int = 42):
+                 pairs_per_epoch: int = 12000, seed: int = 42, max_read_attempts: int = 20):
         self.video_dir = Path(video_dir)
         self.crop_h, self.crop_w = crop_h, crop_w
         self.gap_min, self.gap_max = int(gap_min), int(gap_max)
         self.pairs_per_epoch = int(pairs_per_epoch)
         self.seed = int(seed)
+        self.max_read_attempts = int(max_read_attempts)
         self.videos = sorted([p for p in self.video_dir.glob('*.mp4')])
         if not self.videos:
             raise FileNotFoundError(f'No .mp4 videos found in {self.video_dir}')
@@ -44,13 +45,20 @@ class VideoFramePairDataset(Dataset):
 
     def __getitem__(self, index):
         rng = np.random.default_rng(self.seed + int(index) + torch.utils.data.get_worker_info().id * 100000 if torch.utils.data.get_worker_info() else self.seed + int(index))
-        path, n = self.meta[int(rng.integers(0, len(self.meta)))]
-        gap = int(rng.integers(self.gap_min, self.gap_max + 1))
-        t = int(rng.integers(0, n - gap))
-        a = self._read_frame(path, t)
-        b = self._read_frame(path, t + gap)
-        a, b = random_crop_pair(a, b, self.crop_h, self.crop_w, rng)
-        return {'ia': to_gray_float_tensor(a), 'ib': to_gray_float_tensor(b), 'video': str(path), 't': t, 'gap': gap}
+        last_error = None
+        for _ in range(self.max_read_attempts):
+            path, n = self.meta[int(rng.integers(0, len(self.meta)))]
+            gap = int(rng.integers(self.gap_min, self.gap_max + 1))
+            t = int(rng.integers(0, n - gap))
+            try:
+                a = self._read_frame(path, t)
+                b = self._read_frame(path, t + gap)
+                a, b = random_crop_pair(a, b, self.crop_h, self.crop_w, rng)
+            except (RuntimeError, ValueError, cv2.error) as e:
+                last_error = e
+                continue
+            return {'ia': to_gray_float_tensor(a), 'ib': to_gray_float_tensor(b), 'video': str(path), 't': t, 'gap': gap}
+        raise RuntimeError(f'Could not sample a readable frame pair after {self.max_read_attempts} attempts; last error: {last_error}')
 
 
 class LabeledPointPairsDataset(Dataset):
