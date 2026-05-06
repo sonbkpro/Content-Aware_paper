@@ -28,9 +28,8 @@ class BasicBlock(nn.Module):
 
 class ResNet34HomographyEstimator(nn.Module):
     """ResNet-34 style h(.) from Table 1(c), predicting 4 corner offsets = 8 values."""
-    def __init__(self, in_ch: int = 2, max_corner_offset: float | None = 128.0):
+    def __init__(self, in_ch: int = 2):
         super().__init__()
-        self.max_corner_offset = max_corner_offset
         self.inplanes = 64
         self.conv1 = nn.Conv2d(in_ch, 64, 7, 2, 3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
@@ -42,8 +41,6 @@ class ResNet34HomographyEstimator(nn.Module):
         self.layer4 = self._make_layer(512, 3, stride=2)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512, 8)
-        nn.init.zeros_(self.fc.weight)
-        nn.init.zeros_(self.fc.bias)
 
     def _make_layer(self, planes, blocks, stride):
         layers = [BasicBlock(self.inplanes, planes, stride)]
@@ -62,7 +59,5 @@ class ResNet34HomographyEstimator(nn.Module):
         out = self.layer4(out)
         out = torch.flatten(self.avgpool(out), 1)
         offsets = self.fc(out)
-        if self.max_corner_offset is not None:
-            offsets = torch.tanh(offsets) * float(self.max_corner_offset)
         H = offsets_to_homography(offsets, h, w)
         return H, offsets

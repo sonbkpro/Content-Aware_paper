@@ -7,7 +7,7 @@ from src.losses.triplet_homography_loss import ContentAwareTripletLoss
 
 
 def test_loss_backward():
-    m = ContentAwareHomographyNet(max_corner_offset=16)
+    m = ContentAwareHomographyNet()
     ia = torch.rand(1,1,64,96)
     ib = torch.rand(1,1,64,96)
     out = m(ia, ib, use_attention=False, bidirectional=True)

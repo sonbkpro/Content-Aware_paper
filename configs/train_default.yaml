@@ -14,7 +14,6 @@ data:
   batch_size: 4
   num_workers: 4
 model:
-  max_corner_offset: 128.0
   feature_channels: 1
 loss:
   lambda_triplet: 2.0

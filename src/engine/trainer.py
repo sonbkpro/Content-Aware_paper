@@ -16,7 +16,7 @@ class Trainer:
         requested = cfg.get('device', 'cuda')
         self.device = torch.device(requested if requested == 'cpu' or torch.cuda.is_available() else 'cpu')
         self.out_dir = Path(cfg['train']['out_dir']); self.out_dir.mkdir(parents=True, exist_ok=True)
-        self.model = ContentAwareHomographyNet(cfg['model']['feature_channels'], cfg['model']['max_corner_offset']).to(self.device)
+        self.model = ContentAwareHomographyNet(cfg['model']['feature_channels']).to(self.device)
         self.criterion = ContentAwareTripletLoss(cfg['loss']['lambda_triplet'], cfg['loss']['mu_inverse'])
         self.optim = torch.optim.Adam(self.model.parameters(), lr=cfg['train']['lr'], betas=(cfg['train']['beta1'], cfg['train']['beta2']), eps=cfg['train']['eps'])
         self.sched = torch.optim.lr_scheduler.StepLR(self.optim, step_size=cfg['train']['lr_decay_every'], gamma=cfg['train']['lr_decay_gamma'])

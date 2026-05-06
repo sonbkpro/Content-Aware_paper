@@ -7,11 +7,11 @@ from .homography_estimator import ResNet34HomographyEstimator
 
 
 class ContentAwareHomographyNet(nn.Module):
-    def __init__(self, feature_channels: int = 1, max_corner_offset: float | None = 128.0):
+    def __init__(self, feature_channels: int = 1):
         super().__init__()
         self.feature = FeatureExtractor(1, feature_channels)
         self.mask = MaskPredictor(1)
-        self.estimator = ResNet34HomographyEstimator(2 * feature_channels, max_corner_offset)
+        self.estimator = ResNet34HomographyEstimator(2 * feature_channels)
 
     def encode(self, x):
         F = self.feature(x)
