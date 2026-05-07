@@ -42,7 +42,7 @@ class Trainer:
                 self.optim.zero_grad(set_to_none=True)
                 with torch.amp.autocast('cuda', enabled=self.scaler.is_enabled()):
                     out = self.model(ia, ib, use_attention=use_attention, bidirectional=True)
-                    losses = self.criterion(ia, ib, out, self.model.feature)
+                    losses = self.criterion(ia, ib, out, self.model.feature, use_mask_weighting=use_attention)
                     loss = losses['loss']
                 self.scaler.scale(loss).backward()
                 self.scaler.unscale_(self.optim)
