@@ -31,7 +31,7 @@ def main():
         batch = ds[0]
         ia = batch['ia'].unsqueeze(0)
         ib = batch['ib'].unsqueeze(0)
-        model = ContentAwareHomographyNet(max_corner_offset=16.0)
+        model = ContentAwareHomographyNet()
         model.train()
         out = model(ia, ib, use_attention=False, bidirectional=True)
         criterion = ContentAwareTripletLoss()

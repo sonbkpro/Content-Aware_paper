@@ -17,8 +17,8 @@ class Trainer:
         self.device = torch.device(requested if requested == 'cpu' or torch.cuda.is_available() else 'cpu')
         self.out_dir = Path(cfg['train']['out_dir']); self.out_dir.mkdir(parents=True, exist_ok=True)
         self.model = ContentAwareHomographyNet(cfg['model']['feature_channels']).to(self.device)
-        self.criterion = ContentAwareTripletLoss(cfg['loss']['lambda_triplet'], cfg['loss']['mu_inverse'])
-        self.optim = torch.optim.Adam(self.model.parameters(), lr=cfg['train']['lr'], betas=(cfg['train']['beta1'], cfg['train']['beta2']), eps=cfg['train']['eps'])
+        self.criterion = ContentAwareTripletLoss(cfg['loss']['lambda_triplet'], cfg['loss']['mu_inverse'], margin=cfg['loss'].get('triplet_margin', 1.0))
+        self.optim = torch.optim.Adam(self.model.parameters(), lr=cfg['train']['lr'], betas=(cfg['train']['beta1'], cfg['train']['beta2']), eps=cfg['train']['eps'], amsgrad=bool(cfg['train'].get('amsgrad', False)), weight_decay=float(cfg['train'].get('weight_decay', 0.0)))
         self.sched = torch.optim.lr_scheduler.StepLR(self.optim, step_size=cfg['train']['lr_decay_every'], gamma=cfg['train']['lr_decay_gamma'])
         self.scaler = torch.amp.GradScaler('cuda', enabled=bool(cfg.get('amp', True) and self.device.type == 'cuda'))
         self.step = 0

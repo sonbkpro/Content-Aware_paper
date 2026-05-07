@@ -7,9 +7,15 @@ class FeatureExtractor(nn.Module):
     def __init__(self, in_ch: int = 1, out_ch: int = 1):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(in_ch, 4, 3, 1, 1), nn.ReLU(inplace=True),
-            nn.Conv2d(4, 8, 3, 1, 1), nn.ReLU(inplace=True),
-            nn.Conv2d(8, out_ch, 3, 1, 1),
+            nn.Conv2d(in_ch, 4, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(4),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(4, 8, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(8),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(8, out_ch, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True),
         )
 
     def forward(self, x):

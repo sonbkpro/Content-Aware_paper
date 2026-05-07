@@ -1,23 +1,35 @@
 from __future__ import annotations
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from src.geometry.warp import warp_perspective
 from src.geometry.homography_utils import inverse_consistency_loss
 
 
 class ContentAwareTripletLoss(nn.Module):
     """Implements Eq. 4, 5, 6 from Content-Aware Unsupervised Deep Homography Estimation."""
-    def __init__(self, lambda_triplet: float = 2.0, mu_inverse: float = 0.01, eps: float = 1e-6):
+    def __init__(self, lambda_triplet: float = 2.0, mu_inverse: float = 0.01, eps: float = 1e-6, margin: float = 1.0):
         super().__init__()
         self.lambda_triplet = lambda_triplet
         self.mu_inverse = mu_inverse
         self.eps = eps
+        self.margin = margin
 
-    def normalized_feature_loss(self, F_warp, F_tgt, M_warp, M_tgt):
+    def _normalized_weighted_mean(self, loss_map, M_warp, M_tgt):
         weight = (M_warp.float() * M_tgt.float()).clamp_min(0.0)
-        numer = (weight * (F_warp.float() - F_tgt.float()).abs()).sum(dim=(1, 2, 3))
+        numer = (weight * loss_map.float()).sum(dim=(1, 2, 3))
         denom = weight.sum(dim=(1, 2, 3)).clamp_min(torch.finfo(weight.dtype).tiny)
         return (numer / denom).mean()
+
+    def normalized_feature_loss(self, F_warp, F_tgt, M_warp, M_tgt):
+        loss_map = (F_warp.float() - F_tgt.float()).abs().sum(dim=1, keepdim=True)
+        return self._normalized_weighted_mean(loss_map, M_warp, M_tgt)
+
+    def normalized_triplet_loss(self, F_anchor, F_positive, F_negative, M_positive, M_anchor):
+        positive_dist = (F_positive.float() - F_anchor.float()).abs().sum(dim=1, keepdim=True)
+        negative_dist = (F_negative.float() - F_anchor.float()).abs().sum(dim=1, keepdim=True)
+        loss_map = F.relu(positive_dist - self.lambda_triplet * negative_dist + self.margin)
+        return self._normalized_weighted_mean(loss_map, M_positive, M_anchor)
 
     def forward(self, ia, ib, model_out, feature_extractor, use_mask_weighting: bool = True):
         ab, ba = model_out['ab'], model_out['ba']
@@ -38,11 +50,11 @@ class ContentAwareTripletLoss(nn.Module):
             Mba_tgt = torch.ones_like(ba['Mb'])
         Ma_w = warp_perspective(Ma, Hab, ib.shape[-2], ib.shape[-1])
         Mb_w = warp_perspective(Mba_src, Hba, ia.shape[-2], ia.shape[-1])
-        l_ab = self.normalized_feature_loss(Fa_w, ab['Fb'], Ma_w, Mb)
-        l_ba = self.normalized_feature_loss(Fb_w, ba['Fb'], Mb_w, Mba_tgt)
+        l_ab = self.normalized_triplet_loss(ab['Fb'], Fa_w, ab['Fa'], Ma_w, Mb)
+        l_ba = self.normalized_triplet_loss(ba['Fb'], Fb_w, ba['Fa'], Mb_w, Mba_tgt)
         discriminative = (ab['Fa'] - ab['Fb']).abs().mean()
         inv = inverse_consistency_loss(Hab, Hba)
-        total = l_ab + l_ba - self.lambda_triplet * discriminative + self.mu_inverse * inv
+        total = l_ab + l_ba + self.mu_inverse * inv
         return {
             'loss': total,
             'l_ab': l_ab.detach(),

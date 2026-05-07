@@ -18,6 +18,7 @@ model:
 loss:
   lambda_triplet: 2.0
   mu_inverse: 0.01
+  triplet_margin: 1.0
 train:
   total_iters: 120000
   stage1_iters: 60000
@@ -25,6 +26,8 @@ train:
   beta1: 0.9
   beta2: 0.999
   eps: 0.00000001
+  amsgrad: false
+  weight_decay: 0.0
   lr_decay_every: 12000
   lr_decay_gamma: 0.8
   log_every: 50

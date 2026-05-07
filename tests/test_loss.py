@@ -40,3 +40,13 @@ def test_normalized_feature_loss_stays_scale_invariant_for_tiny_masks():
     full_loss = criterion.normalized_feature_loss(F_warp, F_tgt, full, full)
     tiny_loss = criterion.normalized_feature_loss(F_warp, F_tgt, tiny, tiny)
     assert torch.allclose(tiny_loss, full_loss)
+
+
+def test_triplet_loss_is_nonnegative():
+    criterion = ContentAwareTripletLoss()
+    anchor = torch.zeros(1, 1, 4, 4)
+    positive = torch.full((1, 1, 4, 4), 3.0)
+    negative = torch.ones(1, 1, 4, 4)
+    mask = torch.ones(1, 1, 4, 4)
+    loss = criterion.normalized_triplet_loss(anchor, positive, negative, mask, mask)
+    assert loss.item() >= 0.0
