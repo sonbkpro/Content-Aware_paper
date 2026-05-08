@@ -4,6 +4,7 @@ import torch.nn as nn
 
 
 def normalize_mask(mask: torch.Tensor, strength: float = 0.5) -> torch.Tensor:
+    mask = mask.float()
     b = mask.size(0)
     max_value = mask.reshape(b, -1).max(dim=1).values.reshape(b, 1, 1, 1)
     return (mask / (max_value * strength).clamp_min(torch.finfo(mask.dtype).eps)).clamp(0.0, 1.0)
@@ -14,6 +15,8 @@ class MaskPredictor(nn.Module):
 
     The official Oneline code applies ``normMask`` outside ``genMask`` after
     extracting the current patch, so ``forward`` returns the raw sigmoid mask.
+    We keep this branch in FP32 even during AMP training; otherwise sigmoid can
+    underflow to exact zeros and make the stage-2 weighted loss collapse.
     """
     def __init__(self, in_ch: int = 1):
         super().__init__()
@@ -36,4 +39,7 @@ class MaskPredictor(nn.Module):
         )
 
     def forward(self, x):
-        return self.body(x)
+        if x.device.type in {'cuda', 'cpu'}:
+            with torch.amp.autocast(x.device.type, enabled=False):
+                return self.body(x.float())
+        return self.body(x.float())

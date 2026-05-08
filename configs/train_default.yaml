@@ -1,6 +1,6 @@
 seed: 42
 device: cuda
-amp: true
+amp: false
 data:
   # Official released Oneline geometry. If train_list/train_image_root are set,
   # training follows Data/Train_List.txt-style image pairs; otherwise it samples
@@ -35,6 +35,7 @@ train:
   stage1_iters: 60000
   lr: 0.0001
   stage2_lr: 0.000064
+  stage2_lr_mode: min
   stage1_use_attention: true
   stage1_use_mask_weighting: false
   stage2_use_attention: true

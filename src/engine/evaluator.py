@@ -28,42 +28,47 @@ def _category(path: str) -> str | None:
 
 @torch.no_grad()
 def evaluate_labeled_points(model, dataset, device='cuda', max_points: int = 6):
+    was_training = model.training
     model.eval()
-    errors = []
-    inliers_3px = []
-    by_category = {k: [] for k in OFFICIAL_CATEGORIES}
-    for sample in DataLoader(dataset, batch_size=1, shuffle=False):
-        org_images = sample['org_images'].to(device).float()
-        input_tensors = sample['input_tensors'].to(device).float()
-        h4p = sample['h4p'].to(device).float()
-        patch_indices = sample['patch_indices'].to(device).float()
-        pts_a = sample['pts_a'].to(device).float()
-        pts_b = sample['pts_b'].to(device).float()
-        if max_points is not None:
-            pts_a = pts_a[:, :max_points]
-            pts_b = pts_b[:, :max_points]
-        out = model.forward_oneline(org_images, input_tensors, h4p, patch_indices, use_attention=True, use_mask_weighting=True)
-        H_ab = torch.linalg.inv(out['H'])
-        pred_b = transform_points(pts_a, H_ab)
-        direct = torch.linalg.norm(pred_b - pts_b, dim=-1)
+    try:
+        errors = []
+        inliers_3px = []
+        by_category = {k: [] for k in OFFICIAL_CATEGORIES}
+        for sample in DataLoader(dataset, batch_size=1, shuffle=False):
+            org_images = sample['org_images'].to(device).float()
+            input_tensors = sample['input_tensors'].to(device).float()
+            h4p = sample['h4p'].to(device).float()
+            patch_indices = sample['patch_indices'].to(device).float()
+            pts_a = sample['pts_a'].to(device).float()
+            pts_b = sample['pts_b'].to(device).float()
+            if max_points is not None:
+                pts_a = pts_a[:, :max_points]
+                pts_b = pts_b[:, :max_points]
+            out = model.forward_oneline(org_images, input_tensors, h4p, patch_indices, use_attention=True, use_mask_weighting=True)
+            H_ab = torch.linalg.inv(out['H'])
+            pred_b = transform_points(pts_a, H_ab)
+            direct = torch.linalg.norm(pred_b - pts_b, dim=-1)
 
-        # The released evaluator keeps this guard because some annotation files
-        # do not consistently order the two image points.
-        pred_a = transform_points(pts_b, H_ab)
-        swapped = torch.linalg.norm(pred_a - pts_a, dim=-1)
-        per_point = torch.minimum(direct, swapped)
-        err = per_point.mean().item()
-        errors.append(err)
-        inliers_3px.append((per_point < 3.0).float().mean().item())
-        cat = _category(sample['path1'][0])
-        if cat:
-            by_category[cat].append(err)
-    metrics = {
-        'point_l2_mean': float(sum(errors) / max(len(errors), 1)),
-        'inlier_3px': float(sum(inliers_3px) / max(len(inliers_3px), 1)),
-        'num_pairs': len(errors),
-    }
-    for cat, values in by_category.items():
-        if values:
-            metrics[f'{cat}_point_l2_mean'] = float(sum(values) / len(values))
-    return metrics
+            # The released evaluator keeps this guard because some annotation
+            # files do not consistently order the two image points.
+            pred_a = transform_points(pts_b, H_ab)
+            swapped = torch.linalg.norm(pred_a - pts_a, dim=-1)
+            per_point = torch.minimum(direct, swapped)
+            err = per_point.mean().item()
+            errors.append(err)
+            inliers_3px.append((per_point < 3.0).float().mean().item())
+            cat = _category(sample['path1'][0])
+            if cat:
+                by_category[cat].append(err)
+        metrics = {
+            'point_l2_mean': float(sum(errors) / max(len(errors), 1)),
+            'inlier_3px': float(sum(inliers_3px) / max(len(inliers_3px), 1)),
+            'num_pairs': len(errors),
+        }
+        for cat, values in by_category.items():
+            if values:
+                metrics[f'{cat}_point_l2_mean'] = float(sum(values) / len(values))
+        return metrics
+    finally:
+        if was_training:
+            model.train()
