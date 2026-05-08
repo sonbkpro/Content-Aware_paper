@@ -10,7 +10,11 @@ def normalize_mask(mask: torch.Tensor, strength: float = 0.5) -> torch.Tensor:
 
 
 class MaskPredictor(nn.Module):
-    """Paper Table 1(b): 5 conv layers, 3x3 stride 1, channels 4,8,16,32,1."""
+    """Paper Table 1(b): 5 conv layers, 3x3 stride 1, channels 4,8,16,32,1.
+
+    The official Oneline code applies ``normMask`` outside ``genMask`` after
+    extracting the current patch, so ``forward`` returns the raw sigmoid mask.
+    """
     def __init__(self, in_ch: int = 1):
         super().__init__()
         self.body = nn.Sequential(
@@ -32,4 +36,4 @@ class MaskPredictor(nn.Module):
         )
 
     def forward(self, x):
-        return normalize_mask(self.body(x))
+        return self.body(x)

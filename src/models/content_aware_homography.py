@@ -27,7 +27,7 @@ class ContentAwareHomographyNet(nn.Module):
 
     def encode(self, x):
         F = self.feature(x)
-        M = self.mask(x)
+        M = normalize_mask(self.mask(x))
         return F, M
 
     def forward_oneline(self, org_images, input_tensors, h4p, patch_indices,
