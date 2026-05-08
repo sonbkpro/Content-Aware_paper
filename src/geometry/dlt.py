@@ -58,4 +58,7 @@ def transform_points(points: torch.Tensor, H: torch.Tensor) -> torch.Tensor:
     ones = torch.ones(b, n, 1, device=points.device, dtype=points.dtype)
     ph = torch.cat([points, ones], dim=-1)
     out = ph @ H.transpose(1, 2)
-    return out[..., :2] / out[..., 2:].clamp_min(1e-8)
+    denom = out[..., 2:]
+    eps = torch.finfo(denom.dtype).eps
+    denom = torch.where(denom.abs() < eps, denom.sign().clamp(min=0).mul(2).sub(1) * eps, denom)
+    return out[..., :2] / denom

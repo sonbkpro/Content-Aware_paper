@@ -1,7 +1,11 @@
 from __future__ import annotations
 import torch
 import torch.nn as nn
-from src.geometry.dlt import offsets_to_homography
+import torch.utils.model_zoo as model_zoo
+from src.geometry.dlt import offsets_to_homography, solve_homography_dlt
+
+
+RESNET34_URL = 'https://download.pytorch.org/models/resnet34-333f7ec4.pth'
 
 
 class BasicBlock(nn.Module):
@@ -28,7 +32,7 @@ class BasicBlock(nn.Module):
 
 class ResNet34HomographyEstimator(nn.Module):
     """ResNet-34 style h(.) from Table 1(c), predicting 4 corner offsets = 8 values."""
-    def __init__(self, in_ch: int = 2):
+    def __init__(self, in_ch: int = 2, pretrained_backbone: bool = False):
         super().__init__()
         self.inplanes = 64
         self.conv1 = nn.Conv2d(in_ch, 64, 7, 2, 3, bias=False)
@@ -41,6 +45,8 @@ class ResNet34HomographyEstimator(nn.Module):
         self.layer4 = self._make_layer(512, 3, stride=2)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512, 8)
+        if pretrained_backbone:
+            self.load_imagenet_backbone()
 
     def _make_layer(self, planes, blocks, stride):
         layers = [BasicBlock(self.inplanes, planes, stride)]
@@ -49,7 +55,14 @@ class ResNet34HomographyEstimator(nn.Module):
             layers.append(BasicBlock(self.inplanes, planes, 1))
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def load_imagenet_backbone(self):
+        pretrained = model_zoo.load_url(RESNET34_URL)
+        own = self.state_dict()
+        pretrained = {k: v for k, v in pretrained.items() if k in own and k not in {'conv1.weight', 'fc.weight', 'fc.bias'}}
+        own.update(pretrained)
+        self.load_state_dict(own)
+
+    def forward(self, x, h4p: torch.Tensor | None = None):
         _, _, h, w = x.shape
         out = self.relu(self.bn1(self.conv1(x)))
         out = self.maxpool(out)
@@ -59,5 +72,10 @@ class ResNet34HomographyEstimator(nn.Module):
         out = self.layer4(out)
         out = torch.flatten(self.avgpool(out), 1)
         offsets = self.fc(out)
-        H = offsets_to_homography(offsets, h, w)
+        if h4p is None:
+            H = offsets_to_homography(offsets, h, w)
+        else:
+            src = h4p.reshape(-1, 4, 2).to(device=offsets.device, dtype=offsets.dtype)
+            dst = src + offsets.reshape(-1, 4, 2)
+            H = solve_homography_dlt(src, dst)
         return H, offsets

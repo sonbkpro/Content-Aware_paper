@@ -1,20 +1,20 @@
 # Content-Aware Unsupervised Deep Homography Estimation — PyTorch Implementation
 
-This repository implements the ECCV 2020 paper **Content-Aware Unsupervised Deep Homography Estimation** for small-baseline image/video pairs.
+This repository implements the official released **Oneline** variant of ECCV 2020 **Content-Aware Unsupervised Deep Homography Estimation** for small-baseline image/video pairs.
 
-The implementation follows the paper method while adding practical engineering features:
+The Oneline variant is the version released in `JirongZhang/DeepHomography`: it predicts `H_ab` directly, uses the official patch/canvas geometry, and optimizes the released triplet-margin feature loss.
 
 - Pure PyTorch DLT homography solver.
-- Pure PyTorch STN-style perspective warping with `grid_sample`.
-- Video dataloader for `data/train/000001.mp4`, `data/train/000002.mp4`, ...
+- Pure PyTorch official-style STN perspective sampler.
+- Video dataloader for `dataset/train/000001.mp4`, `dataset/train/000002.mp4`, ...
+- Optional official `Train_List.txt` image-pair dataloader.
 - Random frame-pair sampling: `frame_t` and `frame_t+k`, where `k ∈ [1, 5]` by default.
-- Training crop size: `315 x 560`, matching the paper.
+- Official resize/crop protocol: full image `360 x 640`, patch `315 x 560`, `rho = 16`.
 - Five supported semantic categories: regular, low-texture, low-light, small-foreground, large-foreground.
-- Paper-style two-stage training:
-  - Stage 1: mask used only in the normalized feature loss, not as attention.
-  - Stage 2: mask used both as attention and as RANSAC-like loss weighting.
-- Bidirectional homography prediction: `Hab` and `Hba`.
-- Paper-style triplet loss with inverse consistency.
+- Official Oneline two-stage training:
+  - Stage 1: attention is enabled, but loss mask `mask_ap` is forced to ones.
+  - Stage 2: attention and learned RANSAC-like loss mask are enabled.
+- Official Oneline triplet-margin loss.
 - Validation using manually labeled point correspondences stored in `.npy` files.
 - Inference and visualization scripts.
 - Smoke tests and unit tests.
@@ -66,9 +66,9 @@ The implementation does **not** require Kornia. DLT and warping are implemented 
 Place videos as:
 
 ```text
-data/train/000001.mp4
-data/train/000002.mp4
-data/train/000003.mp4
+dataset/train/000001.mp4
+dataset/train/000002.mp4
+dataset/train/000003.mp4
 ...
 ```
 
@@ -79,25 +79,23 @@ Ia = frame_t
 Ib = frame_t+k, where k ∈ [1, 5]
 ```
 
-The pair is converted to grayscale and randomly cropped to:
+Each pair is resized to `640 x 360`, normalized with the official released constants, converted to one channel, then cropped to:
 
 ```text
 315 x 560
 ```
 
-### Optional category organization
+### Optional official image-pair list
 
-If you want to keep paper-style categories, you can organize externally as:
+For closest parity with the official repo, preprocess videos into images and set:
 
-```text
-data/train/regular/*.mp4
-data/train/low-texture/*.mp4
-data/train/low-light/*.mp4
-data/train/small-foreground/*.mp4
-data/train/large-foreground/*.mp4
+```yaml
+data:
+  train_list: Data/Train_List.txt
+  train_image_root: Data/Train
 ```
 
-The default loader currently expects `.mp4` directly under `data/train`. If you want recursive category loading, set videos under `data/train` or modify the glob line in `VideoFramePairDataset` from `*.mp4` to `**/*.mp4`.
+If these are unset, training samples frame pairs directly from `dataset/train/*.mp4` while using the same Oneline patch protocol.
 
 ---
 
@@ -120,9 +118,9 @@ The validation loader supports your `.npy` format:
 Put files as:
 
 ```text
-data/val_labels/*.npy
-data/val_images/0000011_10001.jpg
-data/val_images/0000011_10005.jpg
+dataset/val_labels/*.npy
+dataset/val_images/0000011_10001.jpg
+dataset/val_images/0000011_10005.jpg
 ```
 
 Evaluate:
@@ -130,8 +128,8 @@ Evaluate:
 ```bash
 python scripts/eval_labeled_points.py \
   --ckpt runs/content_aware_homography/last.pt \
-  --npy_dir data/val_labels \
-  --image_root data/val_images
+  --npy_dir dataset/val_labels \
+  --image_root dataset/val_images
 ```
 
 Metric:
@@ -150,26 +148,26 @@ Edit `configs/train_default.yaml` if needed, then run:
 python scripts/train.py --config configs/train_default.yaml
 ```
 
-Single-GPU safe defaults are used:
+Official-scale defaults are used:
 
 ```yaml
-batch_size: 4
+batch_size: 32
 num_workers: 4
 amp: true
 ```
 
-The paper used:
+The released Oneline recipe uses:
 
 ```text
-120k iterations
 Adam lr = 1e-4
-batch size = 64 on 4 RTX 2080 Ti GPUs
-lr decay by 0.8 every 12k iterations
-lambda = 2.0
-mu = 0.01
+batch size = 32
+Adam amsgrad = true
+weight decay = 1e-4
+triplet margin = 1.0
+stage-2 finetune lr = 6.4e-5
 ```
 
-This repository keeps those algorithmic choices, but lowers batch size for one GPU.
+The default config keeps the iteration-based training loop from this repo and applies the released Oneline loss, preprocessing, geometry, and two-stage mask behavior.
 
 ---
 
@@ -183,7 +181,7 @@ python scripts/infer_pair.py \
   --out alignment_overlay.png
 ```
 
-The script prints `Hab` and saves an overlay where target/warped mismatch appears as color ghosts.
+The script prints both the official sampling matrix `H_dst_to_src_sampling` and the point-transform matrix `H_ab_point_transform = inv(H_dst_to_src_sampling)`.
 
 ---
 
@@ -219,7 +217,7 @@ Expected:
 
 ```text
 SMOKE TEST PASSED
-4 passed
+tests passed
 ```
 
 ---
@@ -229,15 +227,14 @@ SMOKE TEST PASSED
 1. **Feature extractor** follows Table 1(a): `Conv 1→4→8→1`, kernel 3, stride 1.
 2. **Mask predictor** follows Table 1(b): `Conv 1→4→8→16→32→1`, kernel 3, stride 1, sigmoid output.
 3. **Homography estimator** follows a ResNet-34-style backbone and predicts 8 corner offsets.
-4. **Homography conversion** uses differentiable DLT from four canonical corners.
-5. **Warping** uses inverse perspective sampling with `torch.nn.functional.grid_sample`.
-6. **Loss** follows Eq. 4, Eq. 5, and Eq. 6:
-   - normalized masked feature alignment loss,
-   - feature discriminative term to avoid all-zero features,
-   - inverse consistency `||Hab Hba - I||²`.
-7. **Two-stage training** follows the paper:
-   - first stage disables mask-as-attention,
-   - second stage enables both mask roles.
+4. **Homography conversion** uses differentiable DLT from the full-image patch corners `h4p`.
+5. **Warping** follows the released Oneline transform direction: the predicted matrix is a destination-to-source sampling homography.
+6. **Loss** follows the released Oneline implementation:
+   - anchor: target patch feature `F_b`,
+   - positive: warped source patch feature `F'_a`,
+   - negative: source patch feature `F_a`,
+   - normalized by `mask_ap`.
+7. **Two-stage training** follows the released Oneline behavior controlled by `stage1_use_*` and `stage2_use_*` config fields.
 
 ---
 

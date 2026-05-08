@@ -2,65 +2,35 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from src.geometry.warp import warp_perspective
-from src.geometry.homography_utils import inverse_consistency_loss
 
 
 class ContentAwareTripletLoss(nn.Module):
-    """Implements Eq. 4, 5, 6 from Content-Aware Unsupervised Deep Homography Estimation."""
-    def __init__(self, lambda_triplet: float = 2.0, mu_inverse: float = 0.01, eps: float = 1e-6, margin: float = 1.0):
+    """Triplet loss used by the official released Oneline implementation.
+
+    The released code computes a per-pixel p=1 triplet margin loss:
+
+        TripletMarginLoss(anchor=F_b, positive=F'_a, negative=F_a)
+
+    and normalizes it by the learned RANSAC-style mask ``mask_ap``.
+    """
+    def __init__(self, margin: float = 1.0):
         super().__init__()
-        self.lambda_triplet = lambda_triplet
-        self.mu_inverse = mu_inverse
-        self.eps = eps
-        self.margin = margin
+        self.margin = float(margin)
 
-    def _normalized_weighted_mean(self, loss_map, M_warp, M_tgt):
-        weight = (M_warp.float() * M_tgt.float()).clamp_min(0.0)
-        numer = (weight * loss_map.float()).sum(dim=(1, 2, 3))
-        denom = weight.sum(dim=(1, 2, 3)).clamp_min(torch.finfo(weight.dtype).tiny)
-        return (numer / denom).mean()
+    def loss_map(self, anchor: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor) -> torch.Tensor:
+        positive_dist = (positive.float() - anchor.float()).abs().sum(dim=1, keepdim=True)
+        negative_dist = (negative.float() - anchor.float()).abs().sum(dim=1, keepdim=True)
+        return F.relu(positive_dist - negative_dist + self.margin)
 
-    def normalized_feature_loss(self, F_warp, F_tgt, M_warp, M_tgt):
-        loss_map = (F_warp.float() - F_tgt.float()).abs().sum(dim=1, keepdim=True)
-        return self._normalized_weighted_mean(loss_map, M_warp, M_tgt)
-
-    def normalized_triplet_loss(self, F_anchor, F_positive, F_negative, M_positive, M_anchor):
-        positive_dist = (F_positive.float() - F_anchor.float()).abs().sum(dim=1, keepdim=True)
-        negative_dist = (F_negative.float() - F_anchor.float()).abs().sum(dim=1, keepdim=True)
-        loss_map = F.relu(positive_dist - self.lambda_triplet * negative_dist + self.margin)
-        return self._normalized_weighted_mean(loss_map, M_positive, M_anchor)
-
-    def forward(self, ia, ib, model_out, feature_extractor, use_mask_weighting: bool = True):
-        ab, ba = model_out['ab'], model_out['ba']
-        Hab, Hba = ab['H'], ba['H']
-        ia_w = warp_perspective(ia, Hab, ib.shape[-2], ib.shape[-1])
-        ib_w = warp_perspective(ib, Hba, ia.shape[-2], ia.shape[-1])
-        Fa_w = feature_extractor(ia_w)
-        Fb_w = feature_extractor(ib_w)
-        if use_mask_weighting:
-            Ma = ab['Ma']
-            Mb = ab['Mb']
-            Mba_src = ba['Ma']
-            Mba_tgt = ba['Mb']
-        else:
-            Ma = torch.ones_like(ab['Ma'])
-            Mb = torch.ones_like(ab['Mb'])
-            Mba_src = torch.ones_like(ba['Ma'])
-            Mba_tgt = torch.ones_like(ba['Mb'])
-        Ma_w = warp_perspective(Ma, Hab, ib.shape[-2], ib.shape[-1])
-        Mb_w = warp_perspective(Mba_src, Hba, ia.shape[-2], ia.shape[-1])
-        l_ab = self.normalized_triplet_loss(ab['Fb'], Fa_w, ab['Fa'], Ma_w, Mb)
-        l_ba = self.normalized_triplet_loss(ba['Fb'], Fb_w, ba['Fa'], Mb_w, Mba_tgt)
-        discriminative = (ab['Fa'] - ab['Fb']).abs().mean()
-        inv = inverse_consistency_loss(Hab, Hba)
-        total = l_ab + l_ba + self.mu_inverse * inv
+    def forward(self, model_out: dict) -> dict:
+        loss_map = self.loss_map(model_out['Fb'], model_out['pred_ib_feature'], model_out['Fa'])
+        mask = model_out['mask_ap'].float()
+        denom = mask.sum().clamp_min(torch.finfo(mask.dtype).tiny)
+        loss = (loss_map * mask).sum() / denom
         return {
-            'loss': total,
-            'l_ab': l_ab.detach(),
-            'l_ba': l_ba.detach(),
-            'discriminative': discriminative.detach(),
-            'inverse': inv.detach(),
-            'ia_warp': ia_w.detach(),
-            'ib_warp': ib_w.detach(),
+            'loss': loss,
+            'feature_loss': loss.detach(),
+            'loss_map': loss_map.detach(),
+            'mask_sum': mask.sum().detach(),
+            'pred_ib': model_out['pred_ib'].detach(),
         }

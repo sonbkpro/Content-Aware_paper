@@ -14,6 +14,8 @@ def test_video_dataset():
         ds = VideoFramePairDataset(str(d/'train'), crop_h=32, crop_w=32, gap_min=1, gap_max=3, pairs_per_epoch=2)
         s = ds[0]
         assert s['ia'].shape == (1,32,32)
+        assert s['org_images'].shape == (2,360,640)
+        assert s['input_tensors'].shape == (2,32,32)
         assert 1 <= s['gap'] <= 3
 
 
@@ -36,4 +38,5 @@ def test_video_dataset_retries_unreadable_sample(monkeypatch):
         ds = VideoFramePairDataset(str(d/'train'), crop_h=32, crop_w=32, gap_min=1, gap_max=3, pairs_per_epoch=2, max_read_attempts=3)
         s = ds[0]
         assert s['ia'].shape == (1,32,32)
+        assert s['patch_indices'].shape == (32*32,)
         assert calls['n'] > 1

@@ -5,10 +5,13 @@ import torch
 
 
 def tensor_gray_to_uint8(x: torch.Tensor) -> np.ndarray:
-    x = x.detach().float().cpu().clamp(0, 1)
+    x = x.detach().float().cpu()
     if x.ndim == 4: x = x[0]
     if x.shape[0] == 1: x = x[0]
-    return (x.numpy() * 255.0).astype(np.uint8)
+    arr = x.numpy()
+    if arr.min() < 0.0 or arr.max() > 1.0:
+        return cv2.normalize(arr, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
+    return (np.clip(arr, 0.0, 1.0) * 255.0).astype(np.uint8)
 
 
 def make_alignment_overlay(warped_a: torch.Tensor, target_b: torch.Tensor) -> np.ndarray:
