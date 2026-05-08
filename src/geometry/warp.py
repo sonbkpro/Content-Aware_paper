@@ -42,8 +42,11 @@ def warp_perspective(src: torch.Tensor, H_src_to_dst: torch.Tensor, out_h: int |
         dst = torch.stack([xs, ys, ones], dim=-1).reshape(1, out_h * out_w, 3).repeat(b, 1, 1)
         H_inv = torch.linalg.inv(H)
         src_xyw = dst @ H_inv.transpose(1, 2)
-        x = src_xyw[..., 0] / src_xyw[..., 2].clamp_min(1e-8)
-        y = src_xyw[..., 1] / src_xyw[..., 2].clamp_min(1e-8)
+        denom = src_xyw[..., 2]
+        eps = torch.finfo(denom.dtype).eps
+        denom = torch.where(denom.abs() < eps, denom.sign().clamp(min=0).mul(2).sub(1) * eps, denom)
+        x = src_xyw[..., 0] / denom
+        y = src_xyw[..., 1] / denom
         x_norm = 2.0 * x / max(w - 1, 1) - 1.0
         y_norm = 2.0 * y / max(h - 1, 1) - 1.0
         grid = torch.stack([x_norm, y_norm], dim=-1).reshape(b, out_h, out_w, 2)

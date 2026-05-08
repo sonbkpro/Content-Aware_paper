@@ -27,7 +27,7 @@ def _category(path: str) -> str | None:
 
 
 @torch.no_grad()
-def evaluate_labeled_points(model, dataset, device='cuda'):
+def evaluate_labeled_points(model, dataset, device='cuda', max_points: int = 6):
     model.eval()
     errors = []
     inliers_3px = []
@@ -39,6 +39,9 @@ def evaluate_labeled_points(model, dataset, device='cuda'):
         patch_indices = sample['patch_indices'].to(device).float()
         pts_a = sample['pts_a'].to(device).float()
         pts_b = sample['pts_b'].to(device).float()
+        if max_points is not None:
+            pts_a = pts_a[:, :max_points]
+            pts_b = pts_b[:, :max_points]
         out = model.forward_oneline(org_images, input_tensors, h4p, patch_indices, use_attention=True, use_mask_weighting=True)
         H_ab = torch.linalg.inv(out['H'])
         pred_b = transform_points(pts_a, H_ab)

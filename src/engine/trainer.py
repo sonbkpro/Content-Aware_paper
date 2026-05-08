@@ -29,7 +29,7 @@ class Trainer:
         if resume:
             ckpt = load_checkpoint(resume, self.model, self.optim, self.sched, self.device)
             self.step = int(ckpt.get('step', 0))
-            self._stage2_lr_applied = self.step >= int(cfg['train'].get('stage1_iters', 0))
+            self._stage2_lr_applied = self.step > int(cfg['train'].get('stage1_iters', 0))
 
     def train(self):
         dcfg = self.cfg['data']
@@ -37,12 +37,12 @@ class Trainer:
             dataset = ImagePairListDataset(
                 dcfg['train_list'], dcfg['train_image_root'], dcfg['crop_h'], dcfg['crop_w'],
                 dcfg.get('img_h', 360), dcfg.get('img_w', 640), dcfg.get('rho', 16),
-                seed=self.cfg.get('seed', 42),
+                seed=self.cfg.get('seed') if dcfg.get('deterministic_sampling', False) else None,
             )
         else:
             dataset = VideoFramePairDataset(
                 dcfg['train_video_dir'], dcfg['crop_h'], dcfg['crop_w'], dcfg['temporal_gap_min'], dcfg['temporal_gap_max'],
-                dcfg['pairs_per_epoch'], seed=self.cfg.get('seed', 42), img_h=dcfg.get('img_h', 360),
+                dcfg['pairs_per_epoch'], seed=self.cfg.get('seed') if dcfg.get('deterministic_sampling', False) else None, img_h=dcfg.get('img_h', 360),
                 img_w=dcfg.get('img_w', 640), rho=dcfg.get('rho', 16), official_oneline=True)
         loader = DataLoader(dataset, batch_size=dcfg['batch_size'], shuffle=True, num_workers=dcfg['num_workers'], pin_memory=self.device.type == 'cuda', drop_last=True)
         pbar = tqdm(total=self.cfg['train']['total_iters'], initial=self.step, dynamic_ncols=True)
@@ -105,7 +105,7 @@ class Trainer:
                 dcfg.get('img_h', 360), dcfg.get('img_w', 640), dcfg.get('eval_crop_x', 40),
                 dcfg.get('eval_crop_y', 23),
             )
-            metrics = evaluate_labeled_points(self.model, ds, self.device)
+            metrics = evaluate_labeled_points(self.model, ds, self.device, max_points=dcfg.get('eval_max_points', 6))
             print(f"\nvalidation: {metrics}")
         except Exception as e:
             print(f"\nvalidation skipped: {e}")

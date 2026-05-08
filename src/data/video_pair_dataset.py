@@ -19,10 +19,18 @@ from .transforms import (
 )
 
 
+def _rng_for_index(seed: int | None, index: int) -> np.random.Generator:
+    if seed is None:
+        return np.random.default_rng()
+    worker = torch.utils.data.get_worker_info()
+    worker_id = worker.id if worker else 0
+    return np.random.default_rng(int(seed) + int(index) + worker_id * 100000)
+
+
 class VideoFramePairDataset(Dataset):
     """Samples (frame_t, frame_t+k) from mp4 files, where k is random in [gap_min, gap_max]."""
     def __init__(self, video_dir: str, crop_h: int = 315, crop_w: int = 560, gap_min: int = 1, gap_max: int = 5,
-                 pairs_per_epoch: int = 12000, seed: int = 42, max_read_attempts: int = 20,
+                 pairs_per_epoch: int = 12000, seed: int | None = None, max_read_attempts: int = 20,
                  img_h: int = OFFICIAL_IMG_H, img_w: int = OFFICIAL_IMG_W, rho: int = OFFICIAL_RHO,
                  official_oneline: bool = True):
         self.video_dir = Path(video_dir)
@@ -32,7 +40,7 @@ class VideoFramePairDataset(Dataset):
         self.official_oneline = bool(official_oneline)
         self.gap_min, self.gap_max = int(gap_min), int(gap_max)
         self.pairs_per_epoch = int(pairs_per_epoch)
-        self.seed = int(seed)
+        self.seed = None if seed is None else int(seed)
         self.max_read_attempts = int(max_read_attempts)
         self.videos = sorted([p for p in self.video_dir.glob('*.mp4')])
         if not self.videos:
@@ -61,7 +69,7 @@ class VideoFramePairDataset(Dataset):
         return frame
 
     def __getitem__(self, index):
-        rng = np.random.default_rng(self.seed + int(index) + torch.utils.data.get_worker_info().id * 100000 if torch.utils.data.get_worker_info() else self.seed + int(index))
+        rng = _rng_for_index(self.seed, int(index))
         last_error = None
         for _ in range(self.max_read_attempts):
             path, n = self.meta[int(rng.integers(0, len(self.meta)))]
@@ -70,7 +78,8 @@ class VideoFramePairDataset(Dataset):
             try:
                 a = self._read_frame(path, t)
                 b = self._read_frame(path, t + gap)
-                a, b = random_crop_pair(a, b, self.crop_h, self.crop_w, rng)
+                if not self.official_oneline:
+                    a, b = random_crop_pair(a, b, self.crop_h, self.crop_w, rng)
             except (RuntimeError, ValueError, cv2.error) as e:
                 last_error = e
                 continue
@@ -117,18 +126,29 @@ def build_oneline_sample(img_a: np.ndarray, img_b: np.ndarray, patch_h: int, pat
                          rng: np.random.Generator | None, img_h: int = OFFICIAL_IMG_H,
                          img_w: int = OFFICIAL_IMG_W, rho: int = OFFICIAL_RHO,
                          metadata: dict | None = None, crop_xy: tuple[int, int] | None = None) -> dict:
+    patch_h, patch_w = int(patch_h), int(patch_w)
+    img_h, img_w = int(img_h), int(img_w)
+    rho = int(rho)
+    if patch_h > img_h or patch_w > img_w:
+        raise ValueError(f'Patch size {patch_h}x{patch_w} cannot exceed image size {img_h}x{img_w}')
     full_a = to_official_gray_tensor(img_a, img_h, img_w)
     full_b = to_official_gray_tensor(img_b, img_h, img_w)
     full_pair = torch.cat([full_a, full_b], dim=0)
     if crop_xy is None:
         if rng is None:
             rng = np.random.default_rng()
-        x_high = max(rho + 1, img_w - rho - patch_w)
-        y_high = max(rho + 1, img_h - rho - patch_h)
+        x_high = img_w - rho - patch_w
+        y_high = img_h - rho - patch_h
+        if x_high <= rho or y_high <= rho:
+            raise ValueError(
+                f'No valid official crop for image={img_h}x{img_w}, patch={patch_h}x{patch_w}, rho={rho}'
+            )
         x = int(rng.integers(rho, x_high))
         y = int(rng.integers(rho, y_high))
     else:
         x, y = int(crop_xy[0]), int(crop_xy[1])
+        if x < 0 or y < 0 or x + patch_w > img_w or y + patch_h > img_h:
+            raise ValueError(f'Crop ({x},{y}) with patch {patch_h}x{patch_w} is outside image {img_h}x{img_w}')
     input_tensors = crop_official_patch(full_pair, x, y, patch_h, patch_w)
     sample = {
         'org_images': full_pair,
